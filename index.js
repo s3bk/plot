@@ -10,6 +10,6 @@ async function init() {
     }
     window.requestAnimationFrame(frame);
 }
-document.onload = function() {
+window.onload = function() {
     init();
 };
