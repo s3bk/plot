@@ -2,6 +2,7 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{WebGlProgram, WebGl2RenderingContext, WebGlShader, WebGlUniformLocation, WebGlBuffer};
+use js_sys::{Function};
 use tuple::TupleElements;
 
 #[wasm_bindgen]
@@ -15,13 +16,15 @@ pub struct Plotter {
     blendfactor_loca: Option<WebGlUniformLocation>,
     buffer_data: Vec<f32>,
     buffer: WebGlBuffer,
+    function: Function,
+    x_samples: u32
 }
 
 #[wasm_bindgen]
 impl Plotter {
 
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Result<Plotter, JsValue> {
+    pub fn new(f: Function) -> Result<Plotter, JsValue> {
         let document = web_sys::window().unwrap().document().unwrap();
         let canvas = document.get_element_by_id("canvas").unwrap();
         let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>()?;
@@ -51,7 +54,7 @@ impl Plotter {
         let blendfactor_loca = context.get_uniform_location(&program, "uBlendFactor");
         let transform_loca = context.get_uniform_location(&program, "uTransform");
         
-        context.enable(WebGl2RenderingContext::BLEND);
+        //context.enable(WebGl2RenderingContext::BLEND);
         //context.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
         context.depth_mask(false);
         context.clear_color(1.0, 1.0, 0.9, 1.0);
@@ -67,22 +70,30 @@ impl Plotter {
             transform_loca,
             blendfactor_loca,
             buffer,
-            buffer_data: vec![]
+            buffer_data: vec![],
+            function: f,
+            x_samples: 100
         })
+    }
+    pub fn set_func(&mut self, f: Function) {
+        self.function = f;
+    }
+    pub fn set_x_samples(&mut self, x_samples: u32) {
+        self.x_samples = x_samples;
     }
     pub fn frame(&mut self, time: f64) -> Result<(), JsValue> {
         self.buffer_data.clear();
 
         let a = 0.1;
         let t = 0.001 * time;
-        self.buffer_data.extend((-500 ..= 0).flat_map(|n| {
-            let phi = 0.1 * n as f64;
-            let b = (a * phi).exp();
-            let x = (t+phi).cos() * b;
-            let y = (t+phi).sin() * b;
-            let z = 0.0;
-            (x as f32, y as f32, z).into_elements()
-        }));
+        let dx = 1.0 / self.x_samples as f64;
+        for n in 0 ..= self.x_samples {
+            let x = dx * n as f64;
+            let y = self.function.call2(&JsValue::NULL, &x.into(), &t.into())?;
+            self.buffer_data.push(x as f32);
+            self.buffer_data.push(y.as_f64().unwrap_or(0.) as f32);
+            self.buffer_data.push(0.0);
+        }
 
         self.context.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&self.buffer));
 
@@ -104,8 +115,8 @@ impl Plotter {
             );
         }
         
-        let plot_origin = (-3.0, -2.0);
-        let plot_size = (6.0, 4.0);
+        let plot_origin = (0.0, -1.0);
+        let plot_size = (1.0, 2.0);
 
         self.context.vertex_attrib_pointer_with_i32(self.vertex_loca, 3, WebGl2RenderingContext::FLOAT, false, 0, 0);
         self.context.enable_vertex_attrib_array(self.vertex_loca);
@@ -113,7 +124,7 @@ impl Plotter {
 
         self.context.uniform1f(self.blendfactor_loca.as_ref(), 1.5);
         self.context.uniform2f(self.viewport_loca.as_ref(), 600.0, 400.0);
-        self.context.uniform1f(self.linewidth_loca.as_ref(), 1.5);
+        self.context.uniform1f(self.linewidth_loca.as_ref(), 0.5);
         self.context.uniform4f(self.color_loca.as_ref(), 0.0, 0.0, 0.0, 1.0);
         self.context.uniform_matrix4fv_with_f32_array(self.transform_loca.as_ref(), false, &[
             2.0 / plot_size.0, 0.0, 0.0, 0.0,
@@ -123,7 +134,7 @@ impl Plotter {
             -2.0 * plot_origin.1 / plot_size.1 - 1.0, 0.0, 1.0
         ]);
 
-        self.context.line_width(3.0);
+        self.context.line_width(4.0);
         self.context.draw_arrays(
             WebGl2RenderingContext::LINE_STRIP,
             0,
@@ -181,4 +192,16 @@ pub fn link_program(
             .get_program_info_log(&program)
             .unwrap_or_else(|| String::from("Unknown error creating program object")))
     }
+}
+
+#[wasm_bindgen]
+pub fn compile_expr(expr: String, args: String) -> Vec<u8> {
+    use bullet::builder::Builder;
+    use bullet::vm::wasm::Wasm;
+    
+    let builder = Builder::new();
+    let root = builder.parse(&expr).expect("can't parse expr");
+
+    let args: Vec<_> = args.split(" ").collect();
+    Wasm::compile(&root, &args).expect("can't compile")
 }
