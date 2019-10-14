@@ -10,8 +10,8 @@ void main(void)
       float d = length(vLineCenter-gl_FragCoord.xy);
       float w = uLineWidth;
       if (d>w)
-        col.w = 0.3;
+        col.w = 0.;
       else
         col.w *= pow(float((w-d)/w), uBlendFactor);
-      gl_FragColor = col;
+      gl_FragColor = uColor; //col;
 }
