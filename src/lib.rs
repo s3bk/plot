@@ -195,13 +195,14 @@ pub fn link_program(
 }
 
 #[wasm_bindgen]
-pub fn compile_expr(expr: String, args: String) -> Vec<u8> {
+pub fn compile_expr(expr: String, args: String) -> Result<Vec<u8>, JsValue> {
     use bullet::builder::Builder;
     use bullet::vm::wasm::Wasm;
     
     let builder = Builder::new();
-    let root = builder.parse(&expr).expect("can't parse expr");
+    let root = builder.parse(&expr).map_err(|e| format!("{:?}", e))?;
 
     let args: Vec<_> = args.split(" ").collect();
-    Wasm::compile(&root, &args).expect("can't compile")
+    let code = Wasm::compile(&root, &args).map_err(|e| format!("{:?}", e))?;
+    Ok(code)
 }
